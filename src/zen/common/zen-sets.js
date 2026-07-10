@@ -78,6 +78,9 @@ document.addEventListener(
           case "cmd_zenReplacePinnedUrlWithCurrent":
             gZenPinnedTabManager.replacePinnedUrlWithCurrent();
             break;
+          case "cmd_zenEditPinnedUrl":
+            gZenPinnedTabManager.editPinnedUrl();
+            break;
           case "cmd_contextZenAddToEssentials":
             gZenPinnedTabManager.addToEssentials();
             break;
@@ -112,7 +115,9 @@ document.addEventListener(
             });
             break;
           case "cmd_zenTogglePinTab": {
-            const currentTab = gBrowser.selectedTab;
+            const currentTab = gZenGlanceManager.getTabOrGlanceParent(
+              gBrowser.selectedTab
+            );
             if (currentTab && !currentTab.hasAttribute("zen-empty-tab")) {
               if (currentTab.pinned) {
                 gBrowser.unpinTab(currentTab);
@@ -133,6 +138,10 @@ document.addEventListener(
             gZenWorkspaces.unloadAllOtherWorkspaces();
             break;
           }
+          case "cmd_zenOpenSpaceRoutingSettings": {
+            gZenSpaceRoutingManager.openSpaceRoutingDialog(window);
+            break;
+          }
           case "cmd_zenNewNavigatorUnsynced":
             OpenBrowserWindow({ zenSyncedWindow: false });
             break;
@@ -141,6 +150,14 @@ document.addEventListener(
               "resource:///modules/zen/ZenLiveFoldersManager.sys.mjs"
             );
             ZenLiveFoldersManager.handleEvent(event);
+            break;
+          }
+          case "cmd_zenDuplicateTab": {
+            const selectedTabs = gBrowser.selectedTabs;
+            let insertAt = selectedTabs.at(-1)._tPos + 1;
+            for (const tab of selectedTabs) {
+              gBrowser.duplicateTab(tab, true, { tabIndex: insertAt++ });
+            }
             break;
           }
           default:

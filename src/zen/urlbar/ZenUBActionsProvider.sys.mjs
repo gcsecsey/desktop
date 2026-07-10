@@ -27,6 +27,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
 
+ChromeUtils.defineLazyGetter(lazy, "l10n", () => {
+  return new Localization(["browser/zen-command-palette.ftl"], true);
+});
+
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "enabledPref",
@@ -155,6 +159,7 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
    */
   async isActive(queryContext) {
     return (
+      queryContext.searchMode?.source == UrlbarUtils.RESULT_SOURCE.WORKSPACES ||
       queryContext.searchMode?.source ==
         UrlbarUtils.RESULT_SOURCE.ZEN_ACTIONS ||
       (lazy.enabledPref &&
@@ -181,7 +186,7 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
           .workspaceElement(workspace.uuid)
           ?.style.getPropertyValue("--zen-primary-color");
         actions.push({
-          label: "Focus on",
+          label: lazy.l10n.formatValueSync("zen-action-focus-on"),
           extraPayload: {
             workspaceId: workspace.uuid,
             prettyName: workspace.name,
@@ -214,7 +219,7 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
       .map(addon => {
         return {
           icon: "chrome://browser/skin/zen-icons/extension.svg",
-          label: "Extension",
+          label: lazy.l10n.formatValueSync("zen-action-extension"),
           commandId: `zen:extension-${addon.id}`,
           extraPayload: {
             extensionId: addon.id,
@@ -241,10 +246,13 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
    *
    * @param {string} query The user's search query.
    * @param {boolean} isPrefixed Whether the query is prefixed.
+   * @param {boolean} isWorkspaceSearch Whether this is a workspace search query
    */
-  async #findMatchingActions(query, isPrefixed) {
+  async #findMatchingActions(query, isPrefixed, isWorkspaceSearch) {
     const window = lazy.BrowserWindowTracker.getTopWindow();
-    const actions = await this.#getAvailableActions(window);
+    const actions = isWorkspaceSearch
+      ? this.#getWorkspaceActions(window)
+      : await this.#getAvailableActions(window);
     let results = [];
     for (let action of actions) {
       if (isPrefixed && query.length < 1) {
@@ -341,13 +349,21 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
 
   async startQuery(queryContext, addCallback) {
     const query = queryContext.trimmedLowerCaseSearchString;
+    const isWorkspaceSearch =
+      queryContext.searchMode?.source == UrlbarUtils.RESULT_SOURCE.WORKSPACES;
     const isPrefixed =
+      isWorkspaceSearch ||
       queryContext.searchMode?.source == UrlbarUtils.RESULT_SOURCE.ZEN_ACTIONS;
+
     if (!query && !isPrefixed) {
       return;
     }
 
-    const actionsResults = await this.#findMatchingActions(query, isPrefixed);
+    const actionsResults = await this.#findMatchingActions(
+      query,
+      isPrefixed,
+      isWorkspaceSearch
+    );
     if (!actionsResults.length) {
       return;
     }
@@ -361,9 +377,12 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
         zenCommand: action.command,
         dynamicType: DYNAMIC_TYPE_NAME,
         zenAction: true,
-        query: isPrefixed
-          ? action.label.trimStart()
-          : queryContext.searchString,
+        // eslint-disable-next-line no-nested-ternary
+        query: isWorkspaceSearch
+          ? action.extraPayload.prettyName
+          : isPrefixed
+            ? action.label.trimStart()
+            : queryContext.searchString,
         icon: action.icon,
         shortcutContent:
           ownerGlobal.gZenKeyboardShortcutsManager.getShortcutDisplayFromCommand(
@@ -378,7 +397,9 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
         !isPrefixed;
       let result = new lazy.UrlbarResult({
         type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
-        source: UrlbarUtils.RESULT_SOURCE.ZEN_ACTIONS,
+        source: isWorkspaceSearch
+          ? UrlbarUtils.RESULT_SOURCE.WORKSPACES
+          : UrlbarUtils.RESULT_SOURCE.ZEN_ACTIONS,
         payload,
         highlights: payloadHighlights,
         heuristic: shouldBePrioritized,
@@ -398,7 +419,7 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
     zenUrlbarResultsLearner
       .sortCommandsByPriority(finalResults)
       .forEach(result => {
-        if (isPrefixed && i === 0 && query.length > 1) {
+        if (isPrefixed && !isWorkspaceSearch && i === 0 && query.length > 1) {
           result.heuristic = true;
           delete result.suggestedIndex;
         }
@@ -533,7 +554,7 @@ export class ZenUrlbarProviderGlobalActions extends UrlbarProvider {
     const result = details.result;
     const payload = result.payload;
     const command = payload.zenCommand;
-    const ownerGlobal = details.element.ownerGlobal;
+    const ownerGlobal = details.element.documentGlobal;
     ownerGlobal.gBrowser.selectedBrowser.focus();
     if (typeof command === "function") {
       command(ownerGlobal);

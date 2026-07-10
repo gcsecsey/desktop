@@ -9,6 +9,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   TabStateCache: "resource:///modules/sessionstore/TabStateCache.sys.mjs",
   ZenWindowSync: "resource:///modules/zen/ZenWindowSync.sys.mjs",
   FeatureCallout: "resource:///modules/asrouter/FeatureCallout.sys.mjs",
+  GithubTokenManager: "resource:///modules/zen/GithubAuth.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(
@@ -208,6 +209,7 @@ class nsZenLiveFoldersManager {
     }
 
     let url;
+    let host;
     let label;
     let icon;
 
@@ -225,11 +227,25 @@ class nsZenLiveFoldersManager {
         break;
       }
       case "github": {
+        // First GitHub folder defaults to github.com, subsequent ones show prompt
+        if (this.hasGitHubLiveFolder()) {
+          host = await ProviderClass.promptForHost(this.window);
+          if (!host) {
+            return -1;
+          }
+        } else {
+          host = "https://github.com";
+        }
+
         const [message] = await lazy.l10n.formatMessages([
           { id: `zen-live-folder-github-${providerType}` },
         ]);
 
-        label = message.attributes[0].value;
+        const hostname = new URL(host).hostname;
+        label =
+          hostname === "github.com"
+            ? message.attributes[0].value
+            : `${message.attributes[0].value} (${hostname})`;
         icon = "chrome://browser/skin/zen-icons/selectable/logo-github.svg";
         break;
       }
@@ -250,6 +266,7 @@ class nsZenLiveFoldersManager {
     const config = {
       state: this.#applyDefaultStateValues({
         url,
+        host,
         type: providerType,
       }),
     };
@@ -272,7 +289,7 @@ class nsZenLiveFoldersManager {
     let labelElement = folder.labelElement;
     labelElement.setAttribute("live-folder-animation", "true");
     labelElement.style.backgroundPositionX = "0%";
-    folder.ownerGlobal.gZenUIManager.motion
+    folder.documentGlobal.gZenUIManager.motion
       .animate(
         labelElement,
         {
@@ -356,6 +373,21 @@ class nsZenLiveFoldersManager {
     }
 
     liveFolder.stop();
+
+    // Clean up stored PAT if this is a GitHub folder and no other folder shares the host
+    if (liveFolder.constructor.type === "github" && liveFolder.state.host) {
+      const host = liveFolder.state.host;
+      const otherFolderUsesHost = Array.from(this.liveFolders.values()).some(
+        f =>
+          f !== liveFolder &&
+          f.constructor.type === "github" &&
+          f.state.host === host
+      );
+      if (!otherFolderUsesHost) {
+        lazy.GithubTokenManager.removeToken(host).catch(() => {});
+      }
+    }
+
     this.liveFolders.delete(id);
 
     const prefix = `${id}:`;
@@ -440,7 +472,7 @@ class nsZenLiveFoldersManager {
     }
 
     let userContextId = 0;
-    let space = folder.ownerGlobal.gZenWorkspaces.getWorkspaceFromId(
+    let space = folder.documentGlobal.gZenWorkspaces.getWorkspaceFromId(
       folder.getAttribute("zen-workspace-id")
     );
     if (space) {
@@ -502,6 +534,15 @@ class nsZenLiveFoldersManager {
 
   // Helpers
   // -------
+  hasGitHubLiveFolder() {
+    for (const liveFolder of this.liveFolders.values()) {
+      if (liveFolder.constructor.type === "github") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   #applyDefaultStateValues(state) {
     state.interval ||= DEFAULT_FETCH_INTERVAL;
     state.lastFetched ||= 0;

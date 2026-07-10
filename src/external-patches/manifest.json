@@ -4,20 +4,8 @@
 [
   {
     "type": "phabricator",
-    "id": "D279007",
-    "name": "Fix MacOS Crash on Shutdown Firefox 149"
-  },
-  {
-    "type": "phabricator",
-    "id": "D284084",
-    "name": "Native MacOS popovers",
-    "replaces": {
-      // Specifically trying to target FeatureCallout.sys.mjs's change.
-      // IMPORTANT: Make sure Feature callouts STILL use native popopvers when
-      //    syncing from upstream, as this is a critical part of the patch.
-      "+            nonnativepopover=\"true\"": "+ ",
-      "body,": ".browser-toolbox-background,"
-    }
+    "id": "D299584",
+    "name": "Native MacOS popovers fix"
   },
   {
     "type": "phabricator",
@@ -26,6 +14,12 @@
     "replaces": {
       "\n\n": "\n     // may want to figure out a more robust way to detect abandonment."
     }
+  },
+  {
+    "type": "local",
+    // TODO: Convert into https://phabricator.services.mozilla.com/D298079
+    //    once it gets accepted.
+    "path": "firefox/allow_backdrop_to_work_on_transparency.patch"
   },
   {
     "type": "local",
@@ -40,5 +34,10 @@
       // the parameter's help description with the correct one.
       "application": "Application"
     }
+  },
+  {
+    "type": "phabricator",
+    "id": "D291714",
+    "name": "gh-12979 Clip dirty_rect to device_size"
   }
 ]

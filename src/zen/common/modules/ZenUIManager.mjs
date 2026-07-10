@@ -101,10 +101,12 @@ window.gZenUIManager = {
     ) {
       const yValues = rawKeyframes.y || [];
       const xValues = rawKeyframes.x || [];
-      const scaleValues = rawKeyframes.scale || [];
+      const scaleYValues = rawKeyframes.scaleY || [];
+      const scaleXValues = rawKeyframes.scaleX || [];
       delete rawKeyframes.y;
       delete rawKeyframes.x;
-      delete rawKeyframes.scale;
+      delete rawKeyframes.scaleY;
+      delete rawKeyframes.scaleX;
       rawKeyframes.transform = [];
       if (
         yValues.length !== 0 &&
@@ -116,14 +118,17 @@ window.gZenUIManager = {
       const keyframeLength = Math.max(
         yValues.length,
         xValues.length,
-        scaleValues.length
+        scaleYValues.length,
+        scaleXValues.length
       );
       for (let i = 0; i < keyframeLength; i++) {
         const y = yValues[i] !== undefined ? `translateY(${yValues[i]}px)` : "";
         const x = xValues[i] !== undefined ? `translateX(${xValues[i]}px)` : "";
-        const scale =
-          scaleValues[i] !== undefined ? `scale(${scaleValues[i]})` : "";
-        rawKeyframes.transform.push(`${x} ${y} ${scale}`.trim());
+        const scaleY =
+          scaleYValues[i] !== undefined ? `scaleY(${scaleYValues[i]})` : "";
+        const scaleX =
+          scaleXValues[i] !== undefined ? `scaleX(${scaleXValues[i]})` : "";
+        rawKeyframes.transform.push(`${x} ${y} ${scaleX} ${scaleY}`.trim());
       }
     }
     let keyframes = [];
@@ -252,14 +257,14 @@ window.gZenUIManager = {
   },
 
   updateTabsToolbar() {
-    const kUrlbarHeight = 335;
+    const kUrlbarHeight = 333;
     gURLBar.style.setProperty(
       "--zen-urlbar-top",
       `${window.innerHeight / 2 - Math.max(kUrlbarHeight, window.windowUtils.getBoundsWithoutFlushing(gURLBar).height) / 2}px`
     );
     gURLBar.style.setProperty(
       "--zen-urlbar-width",
-      `${Math.min(window.innerWidth / 2, 750)}px`
+      `${Math.min(window.innerWidth / 1.5, 750)}px`
     );
     gZenVerticalTabsManager.actualWindowButtons.removeAttribute(
       "zen-has-hover"
@@ -294,12 +299,9 @@ window.gZenUIManager = {
   },
 
   openAndChangeToTab(url, options) {
-    if (window.ownerGlobal.parent) {
-      const tab = window.ownerGlobal.parent.gBrowser.addTrustedTab(
-        url,
-        options
-      );
-      window.ownerGlobal.parent.gBrowser.selectedTab = tab;
+    if (window.parent) {
+      const tab = window.parent.gBrowser.addTrustedTab(url, options);
+      window.parent.gBrowser.selectedTab = tab;
       return tab;
     }
     const tab = window.gBrowser.addTrustedTab(url, options);
@@ -432,6 +434,9 @@ window.gZenUIManager = {
   },
 
   onUrlbarSearchModeChanged(event) {
+    if (gReduceMotion) {
+      return;
+    }
     const { searchMode } = event.detail;
     const input = gURLBar;
     if (gURLBar.hasAttribute("breakout-extend") && !this._animatingSearchMode) {
@@ -608,8 +613,8 @@ window.gZenUIManager = {
       if (
         this._lastTab &&
         !this._lastTab.closing &&
-        this._lastTab.ownerGlobal &&
-        !this._lastTab.ownerGlobal.closed &&
+        this._lastTab.documentGlobal &&
+        !this._lastTab.documentGlobal.closed &&
         gBrowser.selectedTab === this._lastTab
       ) {
         this._lastTab._visuallySelected = true;
@@ -690,7 +695,11 @@ window.gZenUIManager = {
       this.urlbarShowDomainOnly
     ) {
       let url = BrowserUIUtils.removeSingleTrailingSlashFromURL(aURL);
-      return url.startsWith("https://") ? url.split("/")[2] : url;
+      let stripped = url.startsWith("https://") ? url.split("/")[2] : url;
+      if (stripped.startsWith("www.")) {
+        stripped = stripped.substring(4);
+      }
+      return stripped;
     }
     return BrowserUIUtils.trimURL(aURL);
   },
@@ -1222,7 +1231,7 @@ window.gZenVerticalTabsManager = {
         let height;
         if (!this._hasSetSingleToolbar) {
           height = AppConstants.platform == "macosx" ? 34 : 32;
-        } else if (gURLBar.getAttribute("breakout-extend") !== "true") {
+        } else if (!gURLBar.hasAttribute("breakout-extend")) {
           height = 38;
         }
         if (typeof height !== "undefined") {
@@ -1346,8 +1355,9 @@ window.gZenVerticalTabsManager = {
         if (!this._hasSetSingleToolbar) {
           buttonsTarget.append(this._topButtonsSeparatorElement);
         }
+        this._hasSetSingleToolbar = true;
         for (const button of elements) {
-          this._topButtonsSeparatorElement.after(button);
+          this.appendCustomizableItem(this._topButtonsSeparatorElement, button);
         }
         buttonsTarget.prepend(
           document.getElementById("unified-extensions-button")
@@ -1369,7 +1379,6 @@ window.gZenVerticalTabsManager = {
           titlebar.parentNode.moveBefore(navBar, titlebar);
         }
         document.documentElement.setAttribute("zen-single-toolbar", true);
-        this._hasSetSingleToolbar = true;
       } else if (this._hasSetSingleToolbar) {
         this._hasSetSingleToolbar = false;
         // Do the opposite
@@ -1498,7 +1507,7 @@ window.gZenVerticalTabsManager = {
       this.navigatorToolbox.after(splitter);
       window.dispatchEvent(new Event("resize"));
       if (!isCompactMode) {
-        gZenCompactModeManager.getAndApplySidebarWidth();
+        gZenCompactModeManager.getAndApplySidebarWidth({});
       }
       gZenUIManager.updateTabsToolbar();
       this.rebuildURLBarMenus();
@@ -1550,16 +1559,37 @@ window.gZenVerticalTabsManager = {
     Services.prefs.setBoolPref("zen.tabs.vertical.right-side", newVal);
   },
 
-  appendCustomizableItem(target, child, placements) {
+  appendCustomizableItem(target, child, placements = []) {
     if (
-      target.id === "zen-sidebar-top-buttons-customization-target" &&
       this._hasSetSingleToolbar &&
-      placements.includes(child.id)
+      (target.id === "zen-sidebar-top-buttons-customization-target" ||
+        target === this._topButtonsSeparatorElement)
     ) {
-      this._topButtonsSeparatorElement.before(child);
-      return;
+      if (placements.includes(child.id)) {
+        this._topButtonsSeparatorElement.before(child);
+        return;
+      } else if (
+        child.hasAttribute("data-extensionid") &&
+        Services.prefs.getBoolPref("zen.view.overflow-webext-toolbar", true)
+      ) {
+        if (gURLBar._isOverflowingItems) {
+          const overflowElements = document.getElementById(
+            "zen-overflow-extensions-list"
+          );
+          overflowElements.appendChild(child);
+        } else {
+          const element = document.getElementById("page-action-buttons");
+          child.setAttribute("context", "toolbar-context-menu");
+          element.before(child);
+        }
+        return;
+      }
     }
-    target.appendChild(child);
+    if (target === this._topButtonsSeparatorElement) {
+      this._topButtonsSeparatorElement.after(child);
+    } else {
+      target.appendChild(child);
+    }
   },
 
   async renameTabKeydown(event) {
@@ -1583,7 +1613,9 @@ window.gZenVerticalTabsManager = {
         // it will reset to the original name anyway
         if (hasChanged || (this._tabEdited.zenStaticLabel && newName)) {
           this._tabEdited.zenStaticLabel = newName;
-          gBrowser._setTabLabel(this._tabEdited, newName);
+          gBrowser._setTabLabel(this._tabEdited, newName, {
+            _zenChangeLabelFlag: true,
+          });
           gZenUIManager.showToast("zen-tabs-renamed");
         } else {
           delete this._tabEdited.zenStaticLabel;
@@ -1679,7 +1711,8 @@ window.gZenVerticalTabsManager = {
       this._tabEdited.after(input);
     }
     input.focus();
-    input.select();
+    input.setSelectionRange(0, input.value.length, "backward");
+    input.scrollLeft = 0;
 
     input.addEventListener("blur", this._renameTabHalt);
   },

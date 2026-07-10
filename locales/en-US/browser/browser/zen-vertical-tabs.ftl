@@ -19,6 +19,10 @@ zen-toolbar-context-compact-mode-hide-both =
     .label = Hide both
     .accesskey = H
 
+zen-toolbar-context-move-to-folder =
+    .label = Move to Folder
+    .accesskey = M
+
 zen-toolbar-context-new-folder =
     .label = New Folder
     .accesskey = N
@@ -27,7 +31,7 @@ sidebar-zen-expand =
   .label = Expand Sidebar
 
 sidebar-zen-create-new =
-  .label = Create New...
+  .label = Create New
 
 tabbrowser-unload-tab-button =
 .tooltiptext =
